@@ -1,5 +1,6 @@
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 
@@ -210,6 +211,14 @@ namespace NHibernate.Criterion
 		}
 
 
+		/// <summary>
+		/// Get enumerable for result set
+		/// </summary>
+		public IEnumerable GetEnumerable()
+		{
+			throw new NotImplementedException();
+		}
+
 		IList<TRoot> IQueryOver<TRoot>.List()
 		{ return List(); }
 
@@ -269,7 +278,6 @@ namespace NHibernate.Criterion
 
 		IQueryOver<TRoot> IQueryOver<TRoot>.ReadOnly()
 		{ return ReadOnly(); }
-
 	}
 
 	/// <summary>

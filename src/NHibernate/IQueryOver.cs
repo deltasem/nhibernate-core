@@ -1,5 +1,6 @@
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq.Expressions;
 
@@ -22,6 +23,11 @@ namespace NHibernate
 		/// Access the root underlying ICriteria
 		/// </summary>
 		ICriteria RootCriteria { get; }
+
+		/// <summary>
+		/// Get enumerable for result set
+		/// </summary>
+		IEnumerable GetEnumerable();
 	}
 
 	/// <summary>
@@ -159,7 +165,6 @@ namespace NHibernate
 		/// (see <see cref="ICriteria.SetReadOnly" />).
 		/// </summary>
 		IQueryOver<TRoot> ReadOnly();
-
 	}
 
 	/// <summary>
