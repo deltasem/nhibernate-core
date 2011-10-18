@@ -209,14 +209,13 @@ namespace NHibernate.Criterion
 		{
 			throw new HibernateException("Incorrect syntax;  .As<T> method is for use in Lambda expressions only.");
 		}
-
-
+		
 		/// <summary>
 		/// Get enumerable for result set
 		/// </summary>
 		public IEnumerable GetEnumerable()
 		{
-			throw new NotImplementedException();
+			return criteria.GetEnumerable();
 		}
 
 		IList<TRoot> IQueryOver<TRoot>.List()

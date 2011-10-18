@@ -344,7 +344,12 @@ namespace NHibernate
 		/// <seealso cref="ICriteria.IsReadOnly" />
 		/// <seealso cref="ICriteria.IsReadOnlyInitialized" />
 		ICriteria SetReadOnly(bool readOnly);
-	
+
+		/// <summary>
+		/// Get enumerable for result set
+		/// </summary>
+		IEnumerable GetEnumerable();
+
 		#region NHibernate specific
 
 		/// <summary>

@@ -257,6 +257,22 @@ namespace NHibernate.Impl
 			return results;
 		}
 
+		/// <summary>
+		/// Get enumerable for result set
+		/// </summary>
+		public IEnumerable GetEnumerable()
+		{
+			Before();
+			try
+			{
+				return session.GetEnumerable(this);
+			}
+			finally
+			{
+				After();
+			}
+		}
+
 		public void List(IList results)
 		{
 			Before();
@@ -793,6 +809,14 @@ namespace NHibernate.Impl
 			public IEnumerable<T> Future<T>()
 			{
 				return root.Future<T>();
+			}
+
+			/// <summary>
+			/// Get enumerable for result set
+			/// </summary>
+			public IEnumerable GetEnumerable()
+			{
+				return root.GetEnumerable();
 			}
 
 			public void List(IList results)

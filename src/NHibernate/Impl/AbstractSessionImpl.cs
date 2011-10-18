@@ -80,6 +80,12 @@ namespace NHibernate.Impl
 
 		public abstract IBatcher Batcher { get; }
 		public abstract void CloseSessionFromDistributedTransaction();
+
+		/// <summary>
+		/// Get enumerable for result set
+		/// </summary>
+		public abstract IEnumerable GetEnumerable(CriteriaImpl criteria);
+
 		public abstract IList List(string query, QueryParameters parameters);
 		public abstract void List(string query, QueryParameters parameters, IList results);
 

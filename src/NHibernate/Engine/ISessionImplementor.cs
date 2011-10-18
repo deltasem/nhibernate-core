@@ -303,5 +303,10 @@ namespace NHibernate.Engine
 		ITransactionContext TransactionContext { get; set; }
 
 		void CloseSessionFromDistributedTransaction();
+		
+		/// <summary>
+		/// Get enumerable for result set
+		/// </summary>
+		IEnumerable GetEnumerable(CriteriaImpl criteria);
 	}
 }

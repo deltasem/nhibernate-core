@@ -108,6 +108,14 @@ namespace NHibernate.Impl
 			Dispose(true);
 		}
 
+		/// <summary>
+		/// Get enumerable for result set
+		/// </summary>
+		public override IEnumerable GetEnumerable(CriteriaImpl criteria)
+		{
+			throw new NotImplementedException();
+		}
+
 		public override IList List(string query, QueryParameters parameters)
 		{
 			using (new SessionIdLoggingContext(SessionId))
