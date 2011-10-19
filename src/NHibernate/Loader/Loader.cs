@@ -558,6 +558,60 @@ namespace NHibernate.Loader
 			}
 		}
 
+		internal void InitializeEntityAndCollections(object hydratedObject, object resultSetId, ISessionImplementor session, bool readOnly)
+		{
+			ICollectionPersister[] collectionPersisters = CollectionPersisters;
+			if (collectionPersisters != null)
+			{
+				for (int i = 0; i < collectionPersisters.Length; i++)
+				{
+					if (collectionPersisters[i].IsArray)
+					{
+						//for arrays, we should end the collection load before resolving
+						//the entities, since the actual array instances are not instantiated
+						//during loading
+						//TODO: or we could do this polymorphically, and have two
+						//      different operations implemented differently for arrays
+						EndCollectionLoad(resultSetId, session, collectionPersisters[i]);
+					}
+				}
+			}
+			//important: reuse the same event instances for performance!
+			PreLoadEvent pre;
+			PostLoadEvent post;
+			if (session.IsEventSource)
+			{
+				var eventSourceSession = (IEventSource)session;
+				pre = new PreLoadEvent(eventSourceSession);
+				post = new PostLoadEvent(eventSourceSession);
+			}
+			else
+			{
+				pre = null;
+				post = null;
+			}
+
+			if (hydratedObject != null)
+			{
+				TwoPhaseLoad.InitializeEntity(hydratedObject, readOnly, session, pre, post);
+			}
+
+			if (collectionPersisters != null)
+			{
+				for (int i = 0; i < collectionPersisters.Length; i++)
+				{
+					if (!collectionPersisters[i].IsArray)
+					{
+						//for sets, we should end the collection load after resolving
+						//the entities, since we might call hashCode() on the elements
+						//TODO: or we could do this polymorphically, and have two
+						//      different operations implemented differently for arrays
+						EndCollectionLoad(resultSetId, session, collectionPersisters[i]);
+					}
+				}
+			}
+		}
+
 		internal void InitializeEntitiesAndCollections(IList hydratedObjects, object resultSetId, ISessionImplementor session, bool readOnly)
 		{
 			ICollectionPersister[] collectionPersisters = CollectionPersisters;
@@ -1528,7 +1582,7 @@ namespace NHibernate.Loader
 			/// <summary>
 			/// Represent enumerator for result
 			/// </summary>
-			public class ReaderEnumerator : IEnumerator
+			public class ReaderEnumerator : IEnumerator, IDisposable
 			{
 				/// <summary>
 				/// session
@@ -1549,6 +1603,17 @@ namespace NHibernate.Loader
 				/// temp
 				/// </summary>
 				private IEnumerator result;
+
+				private RowSelection _selection;
+				private int _maxRows;
+				private int _entitySpan;
+				private List<object> _hydratedObjects;
+				private IDbCommand _st;
+				private IDataReader _rs;
+				private LockMode[] lockModeArray;
+				private EntityKey optionalObjectKey;
+				private EntityKey[] keys;
+				private int count;
 
 				/// <summary>
 				/// Initializes a new instance of the <see cref="T:System.Object"/> class.
@@ -1573,7 +1638,7 @@ namespace NHibernate.Loader
 				/// <exception cref="T:System.InvalidOperationException">The enumerator is positioned before the first element of the collection or after the last element.-or- The collection was modified after the enumerator was created.</exception><filterpriority>2</filterpriority>
 				public object Current
 				{
-					get { return result.Current; }
+					get { return GetEntityFromReader(lockModeArray, optionalObjectKey, count, keys); }
 				}
 
 				/// <summary>
@@ -1585,7 +1650,7 @@ namespace NHibernate.Loader
 				/// <exception cref="T:System.InvalidOperationException">The collection was modified after the enumerator was created. </exception><filterpriority>2</filterpriority>
 				public bool MoveNext()
 				{
-					return result.MoveNext();
+					return count++ < _maxRows && _rs.Read();
 				}
 
 				/// <summary>
@@ -1594,7 +1659,244 @@ namespace NHibernate.Loader
 				/// <exception cref="T:System.InvalidOperationException">The collection was modified after the enumerator was created. </exception><filterpriority>2</filterpriority>
 				public void Reset()
 				{
-					result = loader.DoQueryAndInitializeNonLazyCollections(session, queryParameters, true).GetEnumerator();
+					IPersistenceContext persistenceContext = session.PersistenceContext;
+					bool defaultReadOnlyOrig = persistenceContext.DefaultReadOnly;
+
+					if (queryParameters.IsReadOnlyInitialized)
+						persistenceContext.DefaultReadOnly = queryParameters.ReadOnly;
+					else
+						queryParameters.ReadOnly = persistenceContext.DefaultReadOnly;
+
+					persistenceContext.BeforeLoad();
+					IList result1;
+					try
+					{
+						try
+						{
+							_selection = queryParameters.RowSelection;
+							_maxRows = HasMaxRows(_selection) ? _selection.MaxRows : int.MaxValue;
+
+							_entitySpan = loader.EntityPersisters.Length;
+
+							_hydratedObjects = _entitySpan == 0 ? null : new List<object>(_entitySpan * 10);
+
+							_st = loader.PrepareQueryCommand(queryParameters, false, session);
+
+							_rs = loader.GetResultSet(_st, queryParameters.HasAutoDiscoverScalarTypes, queryParameters.Callable, _selection, session);
+
+							// would be great to move all this below here into another method that could also be used
+							// from the new scrolling stuff.
+							//
+							// Would need to change the way the max-row stuff is handled (i.e. behind an interface) so
+							// that I could do the control breaking at the means to know when to stop
+							lockModeArray = loader.GetLockModes(queryParameters.LockModes);
+							optionalObjectKey = GetOptionalObjectKey(queryParameters, session);
+
+							bool createSubselects = loader.IsSubselectLoadingEnabled;
+							List<EntityKey[]> subselectResultKeys = createSubselects ? new List<EntityKey[]>() : null;
+							IList results = new List<object>();
+
+							try
+							{
+								loader.HandleEmptyCollections(queryParameters.CollectionKeys, _rs, session);
+								keys = new EntityKey[_entitySpan];
+
+								if (Log.IsDebugEnabled)
+								{
+									Log.Debug("processing result set");
+								}
+
+								//for (count = 0; count < _maxRows && _rs.Read(); count++)
+								//{
+								//  var result2 = GetEntityFromReader(lockModeArray, optionalObjectKey, count, keys);
+								//  results.Add(result2);
+
+								//  if (createSubselects)
+								//  {
+								//    subselectResultKeys.Add(keys);
+								//    keys = new EntityKey[_entitySpan]; //can't reuse in this case
+								//  }
+								//}
+
+								if (Log.IsDebugEnabled)
+								{
+									Log.Debug(string.Format("done processing result set ({0} rows)", count));
+								}
+							}
+							catch (Exception e)
+							{
+								e.Data["actual-sql-query"] = _st.CommandText;
+								throw;
+							}
+							finally
+							{
+								// todo: to dispose
+								// session.Batcher.CloseCommand(_st, _rs);
+							}
+
+							// loader.InitializeEntitiesAndCollections(_hydratedObjects, _rs, session, queryParameters.IsReadOnly(session));
+
+							if (createSubselects)
+							{
+								loader.CreateSubselects(subselectResultKeys, queryParameters, session);
+							}
+
+							result1 = results;
+							// final
+						}
+						finally
+						{
+							persistenceContext.AfterLoad();
+						}
+						persistenceContext.InitializeNonLazyCollections();
+					}
+					finally
+					{
+						persistenceContext.DefaultReadOnly = defaultReadOnlyOrig;
+					}
+					result = result1.GetEnumerator();
+				}
+
+				private object GetEntityFromReader(LockMode[] lockModeArray, EntityKey optionalObjectKey, int count, EntityKey[] keys)
+				{
+					if (Log.IsDebugEnabled)
+					{
+						Log.Debug("result set row: " + count);
+					}
+
+					ILoadable[] persisters = loader.EntityPersisters;
+					int entitySpan = persisters.Length;
+
+					for (int i = 0; i < entitySpan; i++)
+					{
+						keys[i] = loader.GetKeyFromResultSet(i, persisters[i], i == entitySpan - 1 ? queryParameters.OptionalId : null, _rs,
+						                                     session);
+						//TODO: the i==entitySpan-1 bit depends upon subclass implementation (very bad)
+					}
+
+					loader.RegisterNonExists(keys, session);
+
+					// this call is side-effecty
+					int cols = persisters.Length;
+					IEntityAliases[] descriptors = loader.EntityAliases;
+
+					if (Log.IsDebugEnabled)
+					{
+						Log.Debug("result row: " + StringHelper.ToString(keys));
+					}
+
+					object[] rowResults = new object[cols];
+
+					for (int i1 = 0; i1 < cols; i1++)
+					{
+						object obj = null;
+						EntityKey key = keys[i1];
+
+						if (keys[i1] == null)
+						{
+							// do nothing
+							/* TODO NH-1001 : if (persisters[i]...EntityType) is an OneToMany or a ManyToOne and
+					 * the keys.length > 1 and the relation IsIgnoreNotFound probably we are in presence of
+					 * an load with "outer join" the relation can be considerer loaded even if the key is null (mean not found)
+					*/
+						}
+						else
+						{
+							//If the object is already loaded, return the loaded one
+							obj = session.GetEntityUsingInterceptor(key);
+							if (obj != null)
+							{
+								//its already loaded so dont need to hydrate it
+								loader.InstanceAlreadyLoaded(_rs, i1, persisters[i1], key, obj, lockModeArray[i1], session);
+							}
+							else
+							{
+								ILoadable persister = persisters[i1];
+								LockMode lockMode = lockModeArray[i1];
+								object obj1;
+
+								string instanceClass = loader.GetInstanceClass(_rs, i1, persister, key.Identifier, session);
+
+								if (optionalObjectKey != null && key.Equals(optionalObjectKey))
+								{
+									// its the given optional object
+									obj1 = queryParameters.OptionalObject;
+								}
+								else
+								{
+									obj1 = session.Instantiate(instanceClass, key.Identifier);
+								}
+
+								// need to hydrate it
+
+								// grab its state from the DataReader and keep it in the Session
+								// (but don't yet initialize the object itself)
+								// note that we acquired LockMode.READ even if it was not requested
+								LockMode acquiredLockMode = lockMode == LockMode.None ? LockMode.Read : lockMode;
+								loader.LoadFromResultSet(_rs, i1, obj1, instanceClass, key, descriptors[i1].RowIdAlias, acquiredLockMode, persister,
+								                         session);
+
+								// materialize associations (and initialize the object) later
+								
+								// ((IList)_hydratedObjects).Add(obj1);
+								loader.InitializeEntityAndCollections(obj1, _rs, session, queryParameters.IsReadOnly(session));
+
+								obj = obj1;
+							}
+						}
+
+						rowResults[i1] = obj;
+					}
+					object[] row = rowResults;
+
+					loader.ReadCollectionElements(row, _rs, session);
+
+					if (true)
+					{
+						// now get an existing proxy for each row element (if there is one)
+						for (int i = 0; i < entitySpan; i++)
+						{
+							object entity = row[i];
+							object proxy = session.PersistenceContext.ProxyFor(persisters[i], keys[i], entity);
+
+							if (entity != proxy)
+							{
+								// Force the proxy to resolve itself
+								((INHibernateProxy)proxy).HibernateLazyInitializer.SetImplementation(entity);
+								row[i] = proxy;
+							}
+						}
+					}
+					object result2 = loader.GetResultColumnOrRow(row, queryParameters.ResultTransformer, _rs, session);
+					return result2;
+				}
+
+				private bool disposed = false;
+
+				/// <summary>
+				/// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+				/// </summary>
+				/// <filterpriority>2</filterpriority>
+				public void Dispose()
+				{
+					Dispose(true);
+				}
+
+				public void Dispose(bool dispose)
+				{
+					if (!disposed)
+					{
+						if (dispose)
+						{
+							session.Batcher.CloseCommand(_st, _rs);
+						}
+						disposed = true;
+					}
+				}
+
+				~ReaderEnumerator()
+				{
+					Dispose(false);
 				}
 			}
 		}
