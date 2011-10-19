@@ -1447,9 +1447,161 @@ namespace NHibernate.Loader
 			}
 		}
 
-		protected IList GetEnumerable(ISessionImplementor session, QueryParameters queryParameters, ISet<string> querySpaces, IType[] resultTypes)
+		/// <summary>
+		/// Represet enumerable for result
+		/// </summary>
+		public class ReaderEnumerable : IEnumerable
 		{
-			return ListIgnoreQueryCache(session, queryParameters);
+			/// <summary>
+			/// session
+			/// </summary>
+			private readonly ISessionImplementor session;
+
+			/// <summary>
+			/// Query parameters
+			/// </summary>
+			private readonly QueryParameters queryParameters;
+
+			/// <summary>
+			/// Query spaces
+			/// </summary>
+			private ISet<string> querySpaces;
+
+			/// <summary>
+			/// Result types
+			/// </summary>
+			private IType[] resultTypes;
+
+			/// <summary>
+			/// Loader
+			/// </summary>
+			private readonly Loader loader;
+
+			/// <summary>
+			/// Constructor
+			/// </summary>
+			/// <param name="loader">Loader</param>
+			/// <param name="session">Session</param>
+			/// <param name="queryParameters">Query parameters</param>
+			/// <param name="querySpaces">Query spaces</param>
+			/// <param name="resultTypes">Result types</param>
+			public ReaderEnumerable(Loader loader, ISessionImplementor session, QueryParameters queryParameters, ISet<string> querySpaces, IType[] resultTypes)
+			{
+				this.loader = loader;
+				this.resultTypes = resultTypes;
+				this.querySpaces = querySpaces;
+				this.queryParameters = queryParameters;
+				this.session = session;
+			}
+
+			/// <summary>
+			/// Get enumerator
+			/// </summary>
+			/// <returns>
+			/// Enumerator
+			/// </returns>
+			public IEnumerator GetEnumerator()
+			{
+				IEnumerator result;
+				try
+				{
+					result = new ReaderEnumerator(loader, session, queryParameters);
+				}
+				catch (HibernateException)
+				{
+					// Do not call Convert on HibernateExceptions
+					throw;
+				}
+				catch (Exception sqle)
+				{
+					throw ADOExceptionHelper.Convert(
+						loader.Factory.SQLExceptionConverter, 
+						sqle, 
+						"could not execute query", 
+						loader.SqlString,
+						queryParameters.PositionalParameterValues, 
+						queryParameters.NamedParameters);
+				}
+				return result;
+			}
+
+			/// <summary>
+			/// Represent enumerator for result
+			/// </summary>
+			public class ReaderEnumerator : IEnumerator
+			{
+				/// <summary>
+				/// session
+				/// </summary>
+				private readonly ISessionImplementor session;
+
+				/// <summary>
+				/// Query parameters
+				/// </summary>
+				private readonly QueryParameters queryParameters;
+
+				/// <summary>
+				/// Loader
+				/// </summary>
+				private readonly Loader loader;
+
+				/// <summary>
+				/// temp
+				/// </summary>
+				private IEnumerator result;
+
+				/// <summary>
+				/// Initializes a new instance of the <see cref="T:System.Object"/> class.
+				/// </summary>
+				/// <param name="loader">Loader</param>
+				/// <param name="session">Session</param>
+				/// <param name="queryParameters">Query parameters</param>
+				public ReaderEnumerator(Loader loader, ISessionImplementor session, QueryParameters queryParameters)
+				{
+					this.session = session;
+					this.queryParameters = queryParameters;
+					this.loader = loader;
+					Reset();
+				}
+
+				/// <summary>
+				/// Gets the current element in the collection.
+				/// </summary>
+				/// <returns>
+				/// The current element in the collection.
+				/// </returns>
+				/// <exception cref="T:System.InvalidOperationException">The enumerator is positioned before the first element of the collection or after the last element.-or- The collection was modified after the enumerator was created.</exception><filterpriority>2</filterpriority>
+				public object Current
+				{
+					get { return result.Current; }
+				}
+
+				/// <summary>
+				/// Advances the enumerator to the next element of the collection.
+				/// </summary>
+				/// <returns>
+				/// true if the enumerator was successfully advanced to the next element; false if the enumerator has passed the end of the collection.
+				/// </returns>
+				/// <exception cref="T:System.InvalidOperationException">The collection was modified after the enumerator was created. </exception><filterpriority>2</filterpriority>
+				public bool MoveNext()
+				{
+					return result.MoveNext();
+				}
+
+				/// <summary>
+				/// Sets the enumerator to its initial position, which is before the first element in the collection.
+				/// </summary>
+				/// <exception cref="T:System.InvalidOperationException">The collection was modified after the enumerator was created. </exception><filterpriority>2</filterpriority>
+				public void Reset()
+				{
+					result = loader.DoQueryAndInitializeNonLazyCollections(session, queryParameters, true).GetEnumerator();
+				}
+			}
+		}
+		
+		protected IEnumerable GetEnumerable(ISessionImplementor session, QueryParameters queryParameters, ISet<string> querySpaces, IType[] resultTypes)
+		{
+			return new ReaderEnumerable(this, session, queryParameters, querySpaces, resultTypes);
 		}
 
 		/// <summary>
