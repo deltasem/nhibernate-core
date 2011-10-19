@@ -55,6 +55,12 @@
     <WarningLevel>4</WarningLevel>
     <CodeAnalysisRuleSet>AllRules.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
+  <PropertyGroup>
+    <SignAssembly>true</SignAssembly>
+  </PropertyGroup>
+  <PropertyGroup>
+    <AssemblyOriginatorKeyFile>NHibernate.snk</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Data" />
@@ -80,6 +86,7 @@
     <Compile Include="SortedSet.cs" />
     <Compile Include="SynchronizedSet.cs" />
     <None Include="Iesi.Collections.build" />
+    <None Include="NHibernate.snk" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="NamespaceSummary.xml" />
@@ -108,4 +115,7 @@
     </BootstrapperPackage>
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PostBuildEvent>xcopy $(ProjectDir)$(OutDir)Iesi.Collections*  $(SolutionDir)libs\ /Y</PostBuildEvent>
+  </PropertyGroup>
 </Project>
