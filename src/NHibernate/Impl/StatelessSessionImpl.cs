@@ -115,45 +115,40 @@ namespace NHibernate.Impl
 		{
 			using (new SessionIdLoggingContext(SessionId))
 			{
-				ArrayList results = new ArrayList();
-				using (new SessionIdLoggingContext(SessionId))
+				CheckAndUpdateSessionStatus();
+				string[] implementors = Factory.GetImplementors(criteria.EntityOrClassName);
+				int size = implementors.Length;
+
+				CriteriaLoader[] loaders = new CriteriaLoader[size];
+				for (int i = 0; i < size; i++)
 				{
-					CheckAndUpdateSessionStatus();
-					string[] implementors = Factory.GetImplementors(criteria.EntityOrClassName);
-					int size = implementors.Length;
+					loaders[i] = new CriteriaLoader(GetOuterJoinLoadable(implementors[i]), Factory,
+													criteria, implementors[i], EnabledFilters);
+				}
 
-					CriteriaLoader[] loaders = new CriteriaLoader[size];
-					for (int i = 0; i < size; i++)
-					{
-						loaders[i] = new CriteriaLoader(GetOuterJoinLoadable(implementors[i]), Factory,
-						                                criteria, implementors[i], EnabledFilters);
-					}
+				IEnumerable result = null;
 
-					bool success = false;
-					try
-					{
-						for (int i = size - 1; i >= 0; i--)
-						{
-							ArrayHelper.AddAll(results, loaders[i].List(this));
-						}
-						success = true;
-					}
-					catch (HibernateException)
-					{
-						// Do not call Convert on HibernateExceptions
-						throw;
-					}
-					catch (Exception sqle)
-					{
-						throw Convert(sqle, "Unable to perform find");
-					}
-					finally
-					{
-						AfterOperation(success);
-					}
+				bool success = false;
+				try
+				{
+					result = loaders[0].GetEnumerable(this);
+					success = true;
+				}
+				catch (HibernateException)
+				{
+					// Do not call Convert on HibernateExceptions
+					throw;
+				}
+				catch (Exception sqle)
+				{
+					throw Convert(sqle, "Unable to perform find");
+				}
+				finally
+				{
+					AfterOperation(success);
 					temporaryPersistenceContext.Clear();
 				}
-				return results;
+				return result;
 			}
 		}
 

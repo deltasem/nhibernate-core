@@ -1447,6 +1447,11 @@ namespace NHibernate.Loader
 			}
 		}
 
+		protected IList GetEnumerable(ISessionImplementor session, QueryParameters queryParameters, ISet<string> querySpaces, IType[] resultTypes)
+		{
+			return ListIgnoreQueryCache(session, queryParameters);
+		}
+
 		/// <summary>
 		/// Return the query results, using the query cache, called
 		/// by subclasses that implement cacheable queries

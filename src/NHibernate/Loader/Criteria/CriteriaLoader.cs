@@ -186,5 +186,10 @@ namespace NHibernate.Loader.Criteria
 		{
 			return translator.CollectedParameterSpecifications;
 		}
+
+		public IEnumerable GetEnumerable(ISessionImplementor session)
+		{
+			return GetEnumerable(session, translator.GetQueryParameters(), querySpaces, resultTypes);
+		}
 	}
 }
