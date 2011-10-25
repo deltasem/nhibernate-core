@@ -1638,7 +1638,16 @@ namespace NHibernate.Loader
 				/// <exception cref="T:System.InvalidOperationException">The enumerator is positioned before the first element of the collection or after the last element.-or- The collection was modified after the enumerator was created.</exception><filterpriority>2</filterpriority>
 				public object Current
 				{
-					get { return GetEntityFromReader(lockModeArray, optionalObjectKey, count, keys); }
+					get
+					{
+						if (count % 10000 == 0)
+						{
+							session.PersistenceContext.Clear();
+						}
+
+						session.PersistenceContext.Clear();
+						return GetEntityFromReader(lockModeArray, optionalObjectKey, count, keys);
+					}
 				}
 
 				/// <summary>
